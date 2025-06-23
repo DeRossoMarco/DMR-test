@@ -13,11 +13,6 @@
  * @version 1.0
  */
 
-#include <mpi.h>
-#include <stdlib.h>
-#include <stdio.h>
-
-#include "dmr.h"
 #include "test.h"
 
 /**

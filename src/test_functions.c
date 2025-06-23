@@ -11,11 +11,6 @@
  * @version 1.0
  */
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <math.h>
-#include <string.h>
 #include "test.h"
 
 int offset(int rank, int size, int num_counters)

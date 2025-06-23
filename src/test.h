@@ -16,6 +16,13 @@
 #define TEST_H
 
 #include <mpi.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <math.h>
+#include <string.h>
+
+#include "dmr.h"
 
 /** @brief Base directory path for checkpoint files */
 #define FILEPATH "/home/mderosso/dmr/test/checkpoints/"
