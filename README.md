@@ -23,7 +23,7 @@ make
 ```
 
 Requirements:
-- MPI implementation (e.g., OpenMPI, MPICH)
+- MPI implementation (OpenMPI)
 - DMR library (`-ldmr`)
 
 ## Running

@@ -9,3 +9,6 @@ slurm-*.out
 
 # Checkpoint directory
 checkpoints
+
+# VS Code workspace settings
+.vscode/
