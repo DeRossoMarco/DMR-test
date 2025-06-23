@@ -1,0 +1,11 @@
+# Build files
+src/*.o
+
+# Binary files
+test
+
+# SLURM run output
+slurm-*.out
+
+# Checkpoint directory
+checkpoints
