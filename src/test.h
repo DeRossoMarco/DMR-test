@@ -25,7 +25,7 @@
 #include "dmr.h"
 
 /** @brief Base directory path for checkpoint files */
-#define FILEPATH "/home/mderosso/dmr/test/checkpoints/"
+#define FILEPATH "/home/mderosso/dmr/DMR-test/checkpoints/"
 /** @brief Base filename for counter checkpoint files */
 #define FILENAME "counters"
 /** @brief Total number of counters distributed across all MPI ranks */
