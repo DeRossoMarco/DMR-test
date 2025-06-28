@@ -11,4 +11,4 @@ slurm-*.out
 checkpoints
 
 # VS Code workspace settings
-.vscode/
+.vscode

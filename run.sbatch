@@ -18,7 +18,7 @@ done
 NODELIST_WITH_COUNTS="${NODELIST_WITH_COUNTS%,}"
 
 # Remember to add DMR_PATH/bin to PATH
-cmd="dmr_wrapper prterun --host $NODELIST_WITH_COUNTS -np 10 ./test"
+cmd="dmr_wrapper mpirun --host $NODELIST_WITH_COUNTS -np 10 --with-ft ulfm ./test"
 
 echo $cmd
 $cmd

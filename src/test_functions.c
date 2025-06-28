@@ -106,12 +106,23 @@ int check_counters(int *counters, int num_counters)
     return 0; // Stop computation - all local counters have reached maximum value
 }
 
-void restart(int rank, int size, int *counters, int num_counters, char *filepath)
+void restart(int rank, int size, int *counters, int *num_counters, char *filepath)
 {
     printf("Rank %d is restarting. Loading counters from file...\n", rank);
+
+    int new_rank, new_size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &new_rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &new_size);
+
+    if (new_rank != rank || new_size != size)
+    {
+        free(counters);
+        *num_counters = dimension(new_rank, new_size, NUM_COUNTERS);
+        counters = init_counters(rank, *num_counters);
+    }
     
     // Input validation - ensure all required parameters are valid
-    if (!counters || !filepath || num_counters <= 0)
+    if (!counters || !filepath || *num_counters <= 0)
     {
         fprintf(stderr, "Invalid parameters for restart on rank %d\n", rank);
         MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
@@ -126,7 +137,7 @@ void restart(int rank, int size, int *counters, int num_counters, char *filepath
     }
 
     char line[256];
-    int lines_to_skip = offset(rank, size, num_counters);
+    int lines_to_skip = offset(rank, size, *num_counters);
 
     // Skip lines belonging to previous ranks in the file
     for (int i = 0; i < lines_to_skip; i++)
@@ -140,7 +151,7 @@ void restart(int rank, int size, int *counters, int num_counters, char *filepath
     }
 
     // Read and validate local counter values
-    for (int i = 0; i < num_counters; i++)
+    for (int i = 0; i < *num_counters; i++)
     {
         if (!fgets(line, sizeof(line), f))
         {

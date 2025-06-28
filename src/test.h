@@ -31,7 +31,7 @@
 /** @brief Total number of counters distributed across all MPI ranks */
 #define NUM_COUNTERS 50
 /** @brief Maximum value each counter can reach before stopping */
-#define MAX_COUNTER_VALUE 30
+#define MAX_COUNTER_VALUE 20
 /** @brief Simulated computation time in seconds per counter increment */
 #define COMPUTE_TIME 2
 
@@ -138,7 +138,7 @@ int check_counters(int *counters, int num_counters);
  * @note Program will abort on file I/O errors or invalid parameters
  * @note Uses offset() function to determine correct file position for this rank
  */
-void restart(int rank, int size, int *counters, int num_counters, char *filepath);
+void restart(int rank, int size, int *counters, int *num_counters, char *filepath);
 
 /**
  * @brief Saves local counters and creates aggregated checkpoint file.
