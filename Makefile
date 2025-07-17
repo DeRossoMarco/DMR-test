@@ -1,6 +1,6 @@
 CC 			= mpicc
 DMRFLAGS 	= -ldmr
-FLAGS  		= -O3 -Wall -g
+FLAGS  		= -Wall -g -lm
 
 SOURCES		= src/test.c src/test_functions.c
 OBJECTS		= $(SOURCES:.c=.o)

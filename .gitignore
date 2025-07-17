@@ -12,3 +12,6 @@ checkpoints
 
 # VS Code workspace settings
 .vscode
+
+# Results folder
+results

@@ -106,23 +106,27 @@ int check_counters(int *counters, int num_counters)
     return 0; // Stop computation - all local counters have reached maximum value
 }
 
-void restart(int rank, int size, int *counters, int *num_counters, char *filepath)
+void restart(int rank, int size, int **counters, int *num_counters, char *filepath)
 {
     printf("Rank %d is restarting. Loading counters from file...\n", rank);
 
+    MPI_Comm comm = dmr_get_world_comm();
+
     int new_rank, new_size;
-    MPI_Comm_rank(MPI_COMM_WORLD, &new_rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &new_size);
+    MPI_Comm_rank(comm, &new_rank);
+    MPI_Comm_size(comm, &new_size);
 
     if (new_rank != rank || new_size != size)
     {
-        free(counters);
+        free(*counters);
         *num_counters = dimension(new_rank, new_size, NUM_COUNTERS);
-        counters = init_counters(rank, *num_counters);
+        *counters = init_counters(new_rank, *num_counters);
+        rank = new_rank;
+        size = new_size;
     }
     
     // Input validation - ensure all required parameters are valid
-    if (!counters || !filepath || *num_counters <= 0)
+    if (!*counters || !filepath || *num_counters <= 0)
     {
         fprintf(stderr, "Invalid parameters for restart on rank %d\n", rank);
         MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
@@ -159,13 +163,13 @@ void restart(int rank, int size, int *counters, int *num_counters, char *filepat
             fclose(f);
             MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
         }
-        counters[i] = atoi(line);
+        (*counters)[i] = atoi(line);
         
         // Validate counter values are within acceptable range
-        if (counters[i] < 0 || counters[i] > MAX_COUNTER_VALUE)
+        if ((*counters)[i] < 0 || (*counters)[i] > MAX_COUNTER_VALUE)
         {
-            fprintf(stderr, "Warning: Invalid counter value %d on rank %d, resetting to 0\n", counters[i], rank);
-            counters[i] = 0;
+            fprintf(stderr, "Warning: Invalid counter value %d on rank %d, resetting to 0\n", (*counters)[i], rank);
+            (*counters)[i] = 0;
         }
     }
     fclose(f);
@@ -194,8 +198,10 @@ void checkpoint(int rank, int size, int *counters, int num_counters, char *filep
 
     fclose(f);
 
+    MPI_Comm comm = dmr_get_world_comm();
+
     // Synchronization barrier: ensure all ranks complete Phase 1 before Phase 2
-    MPI_Barrier(MPI_COMM_WORLD);
+    MPI_Barrier(comm);
 
     // Phase 2: Rank 0 aggregates all rank-specific files into global checkpoint
     if (rank == 0)
@@ -232,7 +238,7 @@ void checkpoint(int rank, int size, int *counters, int num_counters, char *filep
     }
 
     // Final synchronization: ensure global checkpoint is complete before proceeding
-    MPI_Barrier(MPI_COMM_WORLD);
+    MPI_Barrier(comm);
 }
 
 void finalize(int rank, int *counters)

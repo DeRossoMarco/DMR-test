@@ -61,16 +61,19 @@ int main(int argc, char *argv[])
     int *counters = init_counters(rank, num_counters_local);
 
     // Initialize DMR with the provided arguments and restart callback
-    DMR_AUTO(dmr_init(argc, argv), (void)NULL, restart(rank, size, counters, &num_counters_local, filepath), (void)NULL);
+    DMR_AUTO(dmr_init(argc, argv), (void)NULL, restart(rank, size, &counters, &num_counters_local, filepath), (void)NULL);
+
+    MPI_Comm comm = dmr_get_world_comm();
 
     // Set expansion parameters for rank 0 (coordinator)
     if (rank == 0)
     {
-        dmr_set_procs_next_expand(10);
+        dmr_set_procs_next_expand(2);
+        dmr_set_procs_next_shrink(2);
     }
 
     // Synchronize all processes before starting main computation
-    MPI_Barrier(MPI_COMM_WORLD);
+    MPI_Barrier(comm);
 
     // Main computation loop - continue until all local counters reach maximum value
     while (check_counters(counters, num_counters_local))
@@ -104,16 +107,16 @@ int main(int argc, char *argv[])
             suggestion = SHOULD_EXPAND;
         }
         // Shrink when computation is nearly complete (fewer processes needed)
-        else if (counters[0] == 13)
+        else if (counters[0] == 8)
         {
             suggestion = SHOULD_SHRINK;
         }
 
         // Synchronize all processes before checkpoint/reconfiguration
-        MPI_Barrier(MPI_COMM_WORLD);
+        // MPI_Barrier(comm);
 
         // Check for reconfiguration and perform checkpoint with cleanup on exit
-        DMR_AUTO(dmr_check(suggestion), checkpoint(rank, size, counters, num_counters_local, filepath), restart(rank, size, counters, &num_counters_local, filepath), finalize(rank, counters));
+        DMR_AUTO(dmr_check(suggestion), checkpoint(rank, size, counters, num_counters_local, filepath), restart(rank, size, &counters, &num_counters_local, filepath), finalize(rank, counters));
     }
 
     // Finalize DMR system

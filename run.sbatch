@@ -5,6 +5,7 @@
 # Number of nodes
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=10
+#SBATCH --no-kill
 
 NODELIST="$(scontrol show hostname $SLURM_JOB_NODELIST)"
 
@@ -18,7 +19,7 @@ done
 NODELIST_WITH_COUNTS="${NODELIST_WITH_COUNTS%,}"
 
 # Remember to add DMR_PATH/bin to PATH
-cmd="dmr_wrapper mpirun --host $NODELIST_WITH_COUNTS -np 10 --with-ft ulfm ./test"
+cmd="dmr_wrapper mpirun --with-ft ulfm --mca mpi_ft_verbose 1 --host $NODELIST_WITH_COUNTS -np 10 ./test"
 
 echo $cmd
 $cmd
