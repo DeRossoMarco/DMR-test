@@ -9,17 +9,39 @@ This project implements a distributed counter simulation using MPI (Message Pass
 - Example scripts for monitoring and job management
 
 ## Project Structure
-- `src/` — Source code for the main program and supporting functions
+- `src/` — Source code organized by examples and common utilities
+  - `src/common/` — Shared DMR and MPI utilities
+  - `src/examples/` — Individual DMR example implementations
+    - `src/examples/counter/` — Distributed counter simulation
 - `checkpoints/` — Directory for storing checkpoint files
 - `scripts/` — Utility scripts (e.g., monitor, cancel)
-- `Makefile` — Build instructions
+- `Makefile` — Build instructions for all examples
+- `Makefile.original` — Original simple Makefile (backup)
 - `run.sbatch` — Example SLURM batch script
 
 ## Building
-To build the project, run:
+To build all examples, run:
 
 ```
 make
+```
+
+To build a specific example:
+
+```
+make counter
+```
+
+To see available examples:
+
+```
+make list
+```
+
+To create a new example template:
+
+```
+make new-example NAME=my_example
 ```
 
 Requirements:

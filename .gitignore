@@ -2,7 +2,7 @@
 src/*.o
 
 # Binary files
-test
+counter
 
 # SLURM run output
 slurm-*.out

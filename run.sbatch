@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=test
-#SBATCH --time=00:15:00
+#SBATCH --job-name=dmr-test
+#SBATCH --time=01:00:00
 
 # Number of nodes
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=10
+#SBATCH --ntasks-per-node=50
 #SBATCH --no-kill
 
 NODELIST="$(scontrol show hostname $SLURM_JOB_NODELIST)"
@@ -19,7 +19,7 @@ done
 NODELIST_WITH_COUNTS="${NODELIST_WITH_COUNTS%,}"
 
 # Remember to add DMR_PATH/bin to PATH
-cmd="dmr_wrapper mpirun --with-ft ulfm --mca mpi_ft_verbose 1 --host $NODELIST_WITH_COUNTS -np 10 ./test"
+cmd="dmr_wrapper mpirun --with-ft ulfm --host $NODELIST_WITH_COUNTS -np 50 ./counter"
 
 echo $cmd
 $cmd
