@@ -3,6 +3,7 @@ src/**/*.o
 
 # Binary files
 counter
+timing
 
 # SLURM run output
 slurm-*.out
