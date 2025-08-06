@@ -28,7 +28,7 @@ all: $(EXAMPLES)
 counter: $(COMMON_OBJECTS) $(EXAMPLES_DIR)/counter/counter.o $(EXAMPLES_DIR)/counter/counter_functions.o
 	$(CC) $(CFLAGS) $(DMRFLAGS) $^ -o $@
 
-# Timing example
+# Timing example (advanced timing functionality)
 timing: $(COMMON_OBJECTS) $(EXAMPLES_DIR)/timing/timing.o $(EXAMPLES_DIR)/timing/timing_functions.o
 	$(CC) $(CFLAGS) $(DMRFLAGS) $^ -o $@
 

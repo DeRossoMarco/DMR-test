@@ -33,7 +33,163 @@ The benchmark behavior can be configured by modifying constants in `timing.h`:
 
 ## Building
 
-Build the timing example using make:
+Build the # DMR Timing Examples
+
+This directory contains examples demonstrating custom timing functionality for the DMR (Distributed Memory Replication) library.
+
+## Overview
+
+Since DMR doesn't have built-in timing functions, we've implemented custom timing utilities that provide:
+
+- **High-precision timing** using `MPI_Wtime()`
+- **Synchronization** across all MPI processes
+- **Statistical analysis** of timing data (min, max, average, standard deviation)
+- **Load imbalance detection**
+- **Multiple timer support** for complex applications
+
+## Files
+
+- `timing.h` - Header file with timing function declarations
+- `timing.c` - Basic timing example with simple start/stop/report functions
+- `timing_functions.c` - Advanced timing utilities implementation
+- `timing_advanced_example.c` - Comprehensive example showing all timing features
+
+## Basic Usage
+
+### Simple Timing (timing.c)
+
+```c
+#include "timing.h"
+
+// Start timing
+start_timing(DMR_WORLD_COMM);
+
+// Your computation here
+for (int i = 0; i < 1000000; i++) {
+    volatile int temp = i * i;
+}
+
+// Stop timing and report results
+stop_timing(DMR_WORLD_COMM);
+report_timing(DMR_WORLD_COMM);
+```
+
+### Advanced Timing (timing_functions.c)
+
+```c
+#include "timing.h"
+
+// Initialize timing system
+init_timing_system();
+
+// Start a new timer
+int timer_id = start_new_timer(DMR_WORLD_COMM);
+
+// Your computation here
+computation_function();
+
+// Stop the timer
+stop_timer(timer_id, DMR_WORLD_COMM);
+
+// Report detailed statistics
+report_timer_stats(timer_id, DMR_WORLD_COMM, "My Computation");
+```
+
+## Building and Running
+
+### Build the examples:
+
+```bash
+# Build basic timing example
+make timing
+
+# Build advanced timing example  
+make timing-advanced
+
+# Build all examples
+make all
+```
+
+### Run the examples:
+
+```bash
+# Run basic timing example
+mpirun -np 4 ./timing
+
+# Run advanced timing example
+mpirun -np 4 ./timing-advanced
+```
+
+## Timing Functions Reference
+
+### Basic Functions
+
+- `start_timing(MPI_Comm comm)` - Start timing for simple use cases
+- `stop_timing(MPI_Comm comm)` - Stop timing
+- `report_timing(MPI_Comm comm)` - Report timing statistics
+
+### Advanced Functions
+
+- `init_timing_system()` - Initialize the timing system
+- `start_new_timer(MPI_Comm comm)` - Start a new timer, returns timer ID
+- `stop_timer(int timer_id, MPI_Comm comm)` - Stop a specific timer
+- `get_elapsed_time(int timer_id)` - Get elapsed time for a timer
+- `report_timer_stats(int timer_id, MPI_Comm comm, const char* name)` - Report detailed statistics
+- `report_all_timers(MPI_Comm comm)` - Report all timer results
+- `benchmark_section(MPI_Comm comm, void (*func)(void), const char* name)` - Benchmark a function
+
+## Features
+
+### Statistical Analysis
+The timing functions provide comprehensive statistics:
+- Minimum execution time across all processes
+- Maximum execution time across all processes  
+- Average execution time
+- Standard deviation
+- Load imbalance percentage
+
+### Multiple Timers
+Support for up to 10 concurrent timers, allowing you to:
+- Time different phases of your application
+- Create nested timing measurements
+- Compare performance of different algorithms
+
+### Synchronization
+All timing functions use `MPI_Barrier()` to ensure:
+- Synchronized start times across all processes
+- Accurate measurement of parallel sections
+- Consistent timing results
+
+## Example Output
+
+```
+=== Timing Results for Heavy Computation ===
+Timer ID: 2
+Number of processes: 4
+Minimum time: 0.234567 seconds
+Maximum time: 0.245123 seconds
+Average time: 0.239845 seconds
+Standard deviation: 0.004123 seconds
+Total cumulative time: 0.959380 seconds
+Load imbalance: 4.41%
+===============================
+```
+
+## Performance Tips
+
+1. **Use MPI_Wtime()** - Provides high-precision timing
+2. **Minimize timing overhead** - Don't time very short operations
+3. **Consider load balancing** - High standard deviation indicates imbalance
+4. **Use barriers wisely** - They ensure synchronization but add overhead
+5. **Time meaningful sections** - Focus on computationally expensive parts
+
+## Integration with DMR
+
+These timing utilities are designed to work seamlessly with DMR applications:
+- Use `DMR_WORLD_COMM` for timing across all DMR processes
+- Compatible with DMR's MPI-based architecture
+- Can be used to measure DMR replication overhead
+- Suitable for performance analysis of fault-tolerant applications using make:
 
 ```bash
 make timing

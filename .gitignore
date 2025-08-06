@@ -14,5 +14,9 @@ checkpoints
 # VS Code workspace settings
 .vscode
 
-# Results folder
+# Results directory
 results
+
+# Keep examples directories
+!src/examples/counter/
+!src/examples/timing/

@@ -1,11 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=dmr-timing
 #SBATCH --output=results/timing-%j.out
-#SBATCH --error=results/timing-%j.err
-#SBATCH --nodes=4
-#SBATCH --ntasks-per-node=2
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=8
 #SBATCH --time=00:30:00
-#SBATCH --partition=compute
+#SBATCH --no-kill
 
 # DMR Timing Performance Benchmark SLURM Script
 # This script runs the timing performance benchmark with different configurations
@@ -22,10 +21,6 @@ echo ""
 # Ensure results directory exists
 mkdir -p results
 
-# Build the timing example
-echo "Building timing example..."
-make timing
-
 if [ $? -ne 0 ]; then
     echo "Error: Failed to build timing example"
     exit 1
@@ -37,15 +32,15 @@ echo ""
 # Run the timing benchmark
 echo "Starting timing performance benchmark..."
 echo "Run 1: Standard configuration"
-mpirun -np $SLURM_NTASKS ./timing
+dmr_wrapper mpirun --with-ft ulfm -np $SLURM_NTASKS ./timing
 
 echo ""
 echo "Run 2: Reduced process count for comparison"
-mpirun -np 4 ./timing
+dmr_wrapper mpirun --with-ft ulfm -np 4 ./timing
 
 echo ""
 echo "Run 3: Single node configuration"
-mpirun -np 2 ./timing
+dmr_wrapper mpirun --with-ft ulfm -np 2 ./timing
 
 echo ""
 echo "Timing benchmark completed."
