@@ -1,5 +1,5 @@
 # Build files
-src/*.o
+src/**/*.o
 
 # Binary files
 counter
