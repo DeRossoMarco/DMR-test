@@ -18,7 +18,6 @@ The timing benchmark measures the following performance aspects:
 - `timing.c` - Main program implementing the benchmark loop
 - `timing_functions.c` - Implementation of timing measurement functions
 - `run_timing.sbatch` - SLURM batch script for running the benchmark
-- `monitor_timing.sh` - Script for monitoring benchmark execution
 
 ## Configuration
 

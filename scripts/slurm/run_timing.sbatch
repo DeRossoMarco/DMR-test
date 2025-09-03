@@ -18,15 +18,19 @@ echo "Total tasks: $SLURM_NTASKS"
 echo "Start time: $(date)"
 echo ""
 
+# Get project root - use current directory since SLURM starts from where sbatch was called
+PROJECT_ROOT="$(pwd)"
+cd "$PROJECT_ROOT"
+
 # Ensure results directory exists
 mkdir -p results
 
-if [ $? -ne 0 ]; then
-    echo "Error: Failed to build timing example"
+if [ ! -f "./timing" ]; then
+    echo "Error: timing executable not found. Please build first."
     exit 1
 fi
 
-echo "Build successful."
+echo "Build verified."
 echo ""
 
 # Run the timing benchmark
@@ -45,6 +49,9 @@ dmr_wrapper mpirun --with-ft ulfm -np 2 ./timing
 echo ""
 echo "Timing benchmark completed."
 echo "End time: $(date)"
+
+# Return to project root for results
+cd "$PROJECT_ROOT"
 
 # Display final results summary
 echo ""

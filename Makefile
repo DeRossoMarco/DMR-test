@@ -19,7 +19,7 @@ COMMON_OBJECTS = $(COMMON_SOURCES:.c=.o)
 INCLUDES = -I$(COMMON_DIR) -I$(INCLUDE_DIR)
 
 # Available examples (add new examples here)
-EXAMPLES = counter timing
+EXAMPLES = counter timing comprehensive_timing dmr_version_comparison
 
 # Default target builds all examples
 all: $(EXAMPLES)
@@ -30,6 +30,14 @@ counter: $(COMMON_OBJECTS) $(EXAMPLES_DIR)/counter/counter.o $(EXAMPLES_DIR)/cou
 
 # Timing example (advanced timing functionality)
 timing: $(COMMON_OBJECTS) $(EXAMPLES_DIR)/timing/timing.o $(EXAMPLES_DIR)/timing/timing_functions.o
+	$(CC) $(CFLAGS) $(DMRFLAGS) $^ -o $@
+
+# Comprehensive timing tests
+comprehensive_timing: $(COMMON_OBJECTS) $(EXAMPLES_DIR)/timing/comprehensive_timing.o $(EXAMPLES_DIR)/timing/timing_functions.o
+	$(CC) $(CFLAGS) $(DMRFLAGS) $^ -o $@
+
+# DMR version comparison tests
+dmr_version_comparison: $(COMMON_OBJECTS) $(EXAMPLES_DIR)/timing/dmr_version_comparison.o $(EXAMPLES_DIR)/timing/timing_functions.o
 	$(CC) $(CFLAGS) $(DMRFLAGS) $^ -o $@
 
 # Pattern rule for example object files
@@ -50,6 +58,8 @@ clean:
 	rm -f $(EXAMPLES_DIR)/*/*.o
 	rm -f slurm-*.out
 	rm -f checkpoints/counters*
+	rm -f results/test*.csv
+	rm -f results/*.png
 
 # Clean everything including checkpoints
 clean-all: clean

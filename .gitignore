@@ -4,6 +4,7 @@ src/**/*.o
 # Binary files
 counter
 timing
+comprehensive_timing
 
 # SLURM run output
 slurm-*.out
