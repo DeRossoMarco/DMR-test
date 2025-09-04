@@ -68,8 +68,8 @@ int main(int argc, char *argv[])
     // Set expansion parameters for rank 0 (coordinator)
     if (rank == 0)
     {
-        dmr_set_procs_next_expand(20);
-        dmr_set_procs_next_shrink(30);
+        dmr_set_procs_next_expand(4);
+        dmr_set_procs_next_shrink(6);
     }
 
     // Synchronize all processes before starting main computation

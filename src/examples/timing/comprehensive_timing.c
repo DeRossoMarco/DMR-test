@@ -372,12 +372,27 @@ int main(int argc, char *argv[]) {
     switch (test_number) {
         case 1:
             test_varying_initial_processes(argc, argv);
+            if (rank == 0) {
+                printf("\n=== Test 1 Completed ===\n");
+                printf("CSV file ready for plotting:\n");
+                printf("- results/test1_varying_initial.csv\n");
+            }
             break;
         case 2:
             test_varying_expand_shrink(argc, argv);
+            if (rank == 0) {
+                printf("\n=== Test 2 Completed ===\n");
+                printf("CSV file ready for plotting:\n");
+                printf("- results/test2_varying_expand_shrink.csv\n");
+            }
             break;
         case 3:
             test_shrink_only(argc, argv);
+            if (rank == 0) {
+                printf("\n=== Test 3 Completed ===\n");
+                printf("CSV file ready for plotting:\n");
+                printf("- results/test3_shrink_only.csv\n");
+            }
             break;
         default:
             if (rank == 0) {
@@ -388,15 +403,14 @@ int main(int argc, char *argv[]) {
             test_varying_expand_shrink(argc, argv);
             init_timing_system(); // Reset timers
             test_shrink_only(argc, argv);
+            if (rank == 0) {
+                printf("\n=== All Tests Completed ===\n");
+                printf("CSV files are ready for plotting:\n");
+                printf("- results/test1_varying_initial.csv\n");
+                printf("- results/test2_varying_expand_shrink.csv\n");
+                printf("- results/test3_shrink_only.csv\n");
+            }
             break;
-    }
-    
-    if (rank == 0) {
-        printf("\n=== All Tests Completed ===\n");
-        printf("CSV files are ready for plotting:\n");
-        printf("- results/test1_varying_initial.csv\n");
-        printf("- results/test2_varying_expand_shrink.csv\n");
-        printf("- results/test3_shrink_only.csv\n");
     }
     
     // Finalize DMR system

@@ -19,7 +19,7 @@ COMMON_OBJECTS = $(COMMON_SOURCES:.c=.o)
 INCLUDES = -I$(COMMON_DIR) -I$(INCLUDE_DIR)
 
 # Available examples (add new examples here)
-EXAMPLES = counter timing comprehensive_timing dmr_version_comparison
+EXAMPLES = counter timing comprehensive_timing
 
 # Default target builds all examples
 all: $(EXAMPLES)
@@ -34,10 +34,6 @@ timing: $(COMMON_OBJECTS) $(EXAMPLES_DIR)/timing/timing.o $(EXAMPLES_DIR)/timing
 
 # Comprehensive timing tests
 comprehensive_timing: $(COMMON_OBJECTS) $(EXAMPLES_DIR)/timing/comprehensive_timing.o $(EXAMPLES_DIR)/timing/timing_functions.o
-	$(CC) $(CFLAGS) $(DMRFLAGS) $^ -o $@
-
-# DMR version comparison tests
-dmr_version_comparison: $(COMMON_OBJECTS) $(EXAMPLES_DIR)/timing/dmr_version_comparison.o $(EXAMPLES_DIR)/timing/timing_functions.o
 	$(CC) $(CFLAGS) $(DMRFLAGS) $^ -o $@
 
 # Pattern rule for example object files

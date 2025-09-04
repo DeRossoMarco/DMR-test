@@ -29,11 +29,11 @@
 /** @brief Base filename for counter checkpoint files */
 #define FILENAME "counters"
 /** @brief Total number of counters distributed across all MPI ranks */
-#define NUM_COUNTERS 200
+#define NUM_COUNTERS 50
 /** @brief Maximum value each counter can reach before stopping */
 #define MAX_COUNTER_VALUE 10
 /** @brief Simulated computation time in seconds per counter increment */
-#define COMPUTE_TIME 2
+#define COMPUTE_TIME 3
 
 /**
  * @brief Computes offset for this rank in the global counter array.

@@ -3,6 +3,9 @@
 #SBATCH --output=results/comprehensive-timing-%j.out
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=12
+#SBATCH --cpus-per-task=1
+#SBATCH --mem-per-cpu=2G
+#SBATCH --oversubscribe
 #SBATCH --time=02:00:00
 #SBATCH --no-kill
 
@@ -33,12 +36,6 @@ if [ $? -ne 0 ]; then
     echo "Error: Failed to build comprehensive timing test"
     exit 1
 fi
-
-echo "Build successful."
-echo ""
-
-# Change to timing example directory
-cd src/examples/timing
 
 echo "Build successful."
 echo ""

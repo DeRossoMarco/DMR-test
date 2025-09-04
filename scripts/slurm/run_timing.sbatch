@@ -1,8 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=dmr-timing
 #SBATCH --output=results/timing-%j.out
-#SBATCH --nodes=1
-#SBATCH --ntasks-per-node=8
+#SBATCH --ntasks=8
+#SBATCH --cpus-per-task=1
+#SBATCH --mem-per-cpu=2G
+#SBATCH --oversubscribe
 #SBATCH --time=00:30:00
 #SBATCH --no-kill
 
