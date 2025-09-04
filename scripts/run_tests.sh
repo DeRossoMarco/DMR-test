@@ -15,7 +15,6 @@ usage() {
     echo ""
     echo "Test types:"
     echo "  timing         Run timing tests"
-    echo "  comprehensive  Run comprehensive timing tests"
     echo "  counter        Run counter tests"
     echo ""
     echo "Examples:"
@@ -28,10 +27,6 @@ run_slurm() {
         timing)
             echo "Submitting timing tests to SLURM..."
             sbatch "$SCRIPTS_DIR/slurm/run_timing.sbatch"
-            ;;
-        comprehensive)
-            echo "Submitting comprehensive timing tests to SLURM..."
-            sbatch "$SCRIPTS_DIR/slurm/run_comprehensive_timing.sbatch"
             ;;
         counter)
             echo "Submitting counter tests to SLURM..."
