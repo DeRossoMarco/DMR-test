@@ -18,6 +18,9 @@ checkpoints
 # Results directory
 results
 
+# Plans directory
+plans
+
 # Keep examples directories
 !src/examples/counter/
 !src/examples/timing/

@@ -49,8 +49,9 @@ clean:
 	rm -f $(COMMON_DIR)/*.o
 	rm -f $(EXAMPLES_DIR)/*/*.o
 	rm -f slurm-*.out
-	rm -f checkpoints/counters*
-	rm -f results/test*.csv
+	rm -f checkpoints/*
+	rm -f plans/*
+	rm -f results/*.csv
 	rm -f results/*.png
 
 # Clean everything including checkpoints
