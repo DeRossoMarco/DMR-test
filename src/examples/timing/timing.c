@@ -54,7 +54,7 @@ static void timing_restart(int *start_iter, const char *ckpt_file, int *expand_a
 void distributed_computation_work(int rank, int size)
 {
     // Define total work to be distributed among all processes
-    const int total_work = 1000000;  // Total iterations to distribute
+    const int total_work = 256;  // Total iterations to distribute
     
     // Calculate work chunk size per process
     int work_per_process = total_work / size;
@@ -74,7 +74,7 @@ void distributed_computation_work(int rank, int size)
     }
     
     for (int i = work_start; i < work_end; i++) {
-        sleep(0.00001); // Simulate work
+        sleep(1); // Simulate work
     }
 }
 
@@ -170,9 +170,6 @@ int main(int argc, char *argv[])
              timing_restart(&start_iter, ckpt_path, &expand_amount, expand_iter, &shrink_amount, shrink_iter),
              (void)NULL);
 
-    // Start total runtime timer (ID 0)
-    start_timer(0, DMR_WORLD_COMM);
-
     // Set desired dynamic reconfiguration targets (only rank 0) with guards
     if (rank == 0) {
         if (expand_amount > 0) dmr_set_procs_next_expand(expand_amount);
@@ -181,6 +178,8 @@ int main(int argc, char *argv[])
 
     if (start_iter > 0 && rank == 0) {
         printf("Resumed from checkpoint via DMR restart callback: start_iter=%d (total=%d)\n", start_iter, total_iters);
+    } else {
+        start_timer(0, DMR_WORLD_COMM);
     }
 
     MPI_Barrier(DMR_WORLD_COMM);
@@ -208,19 +207,19 @@ int main(int argc, char *argv[])
             start_timer(2, DMR_WORLD_COMM);
         }
 
+        MPI_Barrier(DMR_WORLD_COMM);
         DMR_AUTO(dmr_check(suggestion), timing_checkpoint(rank, iter + 1, ckpt_path), timing_restart(&start_iter, ckpt_path, &expand_amount, expand_iter, &shrink_amount, shrink_iter), (void)NULL);
     }
 
     stop_timer(0, DMR_WORLD_COMM);
     double total_time = get_elapsed_time(0);
-    double expand_time = get_elapsed_time(1);  // 0 if not used
-    double shrink_time = get_elapsed_time(2);  // 0 if not used
-    // Collective statistics summary (rank 0 prints)
+    double expand_time = get_elapsed_time(1);
+    double shrink_time = get_elapsed_time(2);
     report_timer_stats(0, DMR_WORLD_COMM, "total");
     if (expand_amount > 0) report_timer_stats(1, DMR_WORLD_COMM, "expand");
     if (shrink_amount > 0) report_timer_stats(2, DMR_WORLD_COMM, "shrink");
     append_result_line(rank, csv_path, initial_np, expand_amount, shrink_amount, expand_time, shrink_time, total_time);
-    DMR_AUTO(dmr_finalize(), (void)NULL, (void)NULL, (void)NULL);
+    dmr_finalize();
     MPI_Finalize();
     return EXIT_SUCCESS;
 }

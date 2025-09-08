@@ -1,20 +1,13 @@
 #!/bin/bash
 #SBATCH --job-name=dmr-timing
 #SBATCH --output=results/timing-%j.out
-#SBATCH --ntasks=16
-#SBATCH --cpus-per-task=1
-#SBATCH --mem-per-cpu=2G
-#SBATCH --oversubscribe
-#SBATCH --time=00:30:00
+#SBATCH --ntasks=128
+#SBATCH --nodes=2
+#SBATCH --overcommit
+#SBATCH --time=05:00:00
 #SBATCH --no-kill
 
 # DMR Timing Performance Benchmark SLURM Script
-# Runs a matrix of tests for each initial process count:
-#   1. Baseline (no expand/shrink)
-#   2. Expand only
-#   3. Shrink only
-#   4. Expand then Shrink
-# Results appended to per-initial-size CSV in results/.
 
 echo "DMR Timing Performance Benchmark"
 echo "================================="
@@ -34,13 +27,63 @@ fi
 
 echo "Executable present. Starting test matrix..."
 
-# Initial process counts to test
-PROCESS_LIST="4 6 8 10 12 14 16"
+# Create nodefile for MPI
+NODEFILE="$PROJECT_ROOT/nodefile.${SLURM_JOB_ID}"
+if [ -n "$SLURM_JOB_NODELIST" ]; then
+  # Extract node names and create nodefile with slots
+  scontrol show hostnames "$SLURM_JOB_NODELIST" > "$NODEFILE.tmp"
+  
+  # Calculate slots per node (total tasks / number of nodes)
+  SLOTS_PER_NODE=$((SLURM_NTASKS / SLURM_NNODES))
+  
+  # Create nodefile with explicit slot counts
+  > "$NODEFILE"
+  while read -r node; do
+    echo "${node} slots=${SLOTS_PER_NODE}" >> "$NODEFILE"
+  done < "$NODEFILE.tmp"
+  
+  rm -f "$NODEFILE.tmp"
+  
+  echo "Created nodefile with $SLURM_NNODES nodes, $SLOTS_PER_NODE slots each:"
+  cat "$NODEFILE"
+  echo ""
+  
+  # Verify total slots
+  TOTAL_SLOTS=$((SLURM_NNODES * SLOTS_PER_NODE))
+  echo "Total available slots: $TOTAL_SLOTS"
+  if [ "$TOTAL_SLOTS" -lt 128 ]; then
+    echo "Warning: Only $TOTAL_SLOTS slots available, but test requires up to 128"
+  fi
+  echo ""
+else
+  echo "Warning: SLURM_JOB_NODELIST not available, creating simple nodefile"
+  echo "localhost slots=$SLURM_NTASKS" > "$NODEFILE"
+fi
 
-# Expansion / shrink parameter lists (space-separated). Adjust as needed.
-# (Baseline 0/0 handled separately.)
-EXPAND_AMOUNTS="2 4 8 4 6"
-SHRINK_AMOUNTS="2 4 8 6 8"
+# Initial process counts to test 8
+#PROCESS_LIST="8"
+#EXPAND_AMOUNTS="2 4 8 4 8"
+#SHRINK_AMOUNTS="2 4 8 6 12"
+
+# Initial process counts to test 16
+#PROCESS_LIST="16"
+#EXPAND_AMOUNTS="4 8 16 8 16"
+#SHRINK_AMOUNTS="4 8 16 12 24"
+
+# Initial process counts to test 32
+#PROCESS_LIST="32"
+#EXPAND_AMOUNTS="8 16 32 16 32"
+#SHRINK_AMOUNTS="8 16 32 24 48"
+
+# Initial process counts to test 64
+#PROCESS_LIST="64"
+#EXPAND_AMOUNTS="16 32 64 32 64"
+#SHRINK_AMOUNTS="16 32 64 48 96"
+
+# Initial process counts to test 128
+PROCESS_LIST="128"
+EXPAND_AMOUNTS="16 32 64 32 64"
+SHRINK_AMOUNTS="16 32 64 48 96"
 
 # Iteration configuration (total iterations and trigger indices)
 TOTAL_ITERS=10           # total compute iterations
@@ -67,7 +110,8 @@ expand_iter=${EXPAND_ITER}
 shrink_iter=${SHRINK_ITER}
 iters=${TOTAL_ITERS}
 EOF
-  local cmd=(dmr_wrapper mpirun --with-ft ulfm -np "${np}" ./timing \
+  # Use nodefile-based MPI execution
+  local cmd=(dmr_wrapper mpirun --with-ft ulfm --hostfile "$NODEFILE" -np "${np}" ./timing \
     --csv ${csv_file} --ckpt ${ckpt_file} --plan ${plan_file})
   "${cmd[@]}" | tee "${out_file}"
 }
@@ -105,6 +149,8 @@ for NP in $PROCESS_LIST; do
       continue
     fi
     if [ -f "$ckpt_file" ]; then rm -f "$ckpt_file"; fi
+    # Also remove timers checkpoint file between test cases
+    if [ -f "$timers_ckpt" ]; then rm -f "$timers_ckpt"; fi
     label="expand${EXP}_shrink${SHR}"
     run_case "$NP" "$EXP" "$SHR" "$label"
   done
@@ -113,3 +159,9 @@ done
 
 echo "\nAll timing runs completed at $(date)."
 echo "Per-scenario stdout: results/timing_run_np*_*.out"
+
+# Clean up nodefile
+if [ -f "$NODEFILE" ]; then
+  rm -f "$NODEFILE"
+  echo "Cleaned up nodefile: $NODEFILE"
+fi
