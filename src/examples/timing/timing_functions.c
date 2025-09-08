@@ -1,11 +1,10 @@
 #include "timing.h"
 
 // Global variables to store timing data for multiple timing sessions
-#define MAX_TIMERS 50  // Increased from 10 to accommodate comprehensive tests
+#define MAX_TIMERS 3
 static double start_times[MAX_TIMERS];
 static double end_times[MAX_TIMERS];
 static int active_timers[MAX_TIMERS];
-static int next_timer_id = 0;
 
 // Initialize timing system
 void init_timing_system()
@@ -15,51 +14,43 @@ void init_timing_system()
         end_times[i] = 0.0;
         active_timers[i] = 0;
     }
-    next_timer_id = 0;
 }
 
-// Reset timing system (alias for init_timing_system for clarity)
-void reset_timing_system()
+// Start a new timer
+void start_timer(int timer_id, MPI_Comm comm)
 {
-    init_timing_system();
-}
-
-// Start a new timer and return its ID
-int start_new_timer(MPI_Comm comm)
-{
-    if (next_timer_id >= MAX_TIMERS) {
-        fprintf(stderr, "Error: Maximum number of timers (%d) exceeded\n", MAX_TIMERS);
-        return -1;
+    if (timer_id < 0 || timer_id >= MAX_TIMERS) {
+        fprintf(stderr, "Error: Invalid timer ID %d\n", timer_id);
+        return;
+    }
+    if (active_timers[timer_id]) {
+        fprintf(stderr, "Error: Timer %d is already running\n", timer_id);
+        return;
     }
     
-    int timer_id = next_timer_id++;
-    
     // Synchronize all processes before starting the timer
-    MPI_Barrier(comm);
+    // MPI_Barrier(comm);
     
     // Record the start time using MPI_Wtime for high precision
     start_times[timer_id] = MPI_Wtime();
     active_timers[timer_id] = 1;
-    
-    return timer_id;
 }
 
 // Stop a specific timer
-int stop_timer(int timer_id, MPI_Comm comm)
+void stop_timer(int timer_id, MPI_Comm comm)
 {
     if (timer_id < 0 || timer_id >= MAX_TIMERS || !active_timers[timer_id]) {
         fprintf(stderr, "Error: Invalid timer ID %d\n", timer_id);
-        return -1;
+        return;
     }
     
     // Record the end time
     end_times[timer_id] = MPI_Wtime();
     
     // Synchronize all processes after stopping the timer
-    MPI_Barrier(comm);
+    // MPI_Barrier(comm);
     
     active_timers[timer_id] = 0;
-    return 0;
 }
 
 // Get elapsed time for a specific timer
@@ -79,96 +70,132 @@ double get_elapsed_time(int timer_id)
     }
 }
 
-// Report detailed timing statistics for a specific timer
-void report_timer_stats(int timer_id, MPI_Comm comm, const char* timer_name)
-{
-    if (timer_id < 0 || timer_id >= MAX_TIMERS) {
-        fprintf(stderr, "Error: Invalid timer ID %d\n", timer_id);
-        return;
+// Internal helper: gather elapsed time without printing errors (assumes valid id)
+static inline double _raw_elapsed(int timer_id) {
+    if (active_timers[timer_id]) {
+        return MPI_Wtime() - start_times[timer_id];
+    } else {
+        return end_times[timer_id] - start_times[timer_id];
     }
-    
+}
+
+int compute_timer_stats(int timer_id, MPI_Comm comm, timer_stats_t *stats)
+{
+    if (!stats) return -1;
+    if (timer_id < 0 || timer_id >= MAX_TIMERS) return -2;
     int rank, size;
     MPI_Comm_rank(comm, &rank);
     MPI_Comm_size(comm, &size);
-    
-    // Calculate local execution time
-    double local_time = get_elapsed_time(timer_id);
-    
-    if (local_time < 0) {
-        fprintf(stderr, "Error: Could not get elapsed time for timer %d\n", timer_id);
-        return;
-    }
-    
-    // Gather timing statistics across all processes
-    double min_time, max_time, avg_time, total_time;
-    double variance_sum = 0.0, variance = 0.0, std_dev = 0.0;
-    
-    // Reduce operations to get min, max, and sum of execution times
-    MPI_Reduce(&local_time, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, comm);
-    MPI_Reduce(&local_time, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, comm);
-    MPI_Reduce(&local_time, &total_time, 1, MPI_DOUBLE, MPI_SUM, 0, comm);
-    
-    // Calculate average
-    avg_time = total_time / size;
-    
-    // Calculate variance and standard deviation
-    double diff = local_time - avg_time;
-    double diff_squared = diff * diff;
-    MPI_Reduce(&diff_squared, &variance_sum, 1, MPI_DOUBLE, MPI_SUM, 0, comm);
-    variance = variance_sum / size;
-    std_dev = sqrt(variance);
-    
-    // Only rank 0 prints the detailed results
+    double local = _raw_elapsed(timer_id);
+    double minv = 0.0, maxv = 0.0, sumv = 0.0;
+    MPI_Reduce(&local, &minv, 1, MPI_DOUBLE, MPI_MIN, 0, comm);
+    MPI_Reduce(&local, &maxv, 1, MPI_DOUBLE, MPI_MAX, 0, comm);
+    MPI_Reduce(&local, &sumv, 1, MPI_DOUBLE, MPI_SUM, 0, comm);
+    double stddev = 0.0;
+    // Compute average locally on each rank from the sum
+    double avg_local = sumv / (double)size;
+    double diff = local - avg_local;
+    double sq = diff * diff;
+    double sumsq = 0.0;
+    MPI_Reduce(&sq, &sumsq, 1, MPI_DOUBLE, MPI_SUM, 0, comm);
     if (rank == 0) {
-        printf("\n=== Timing Results for %s ===\n", timer_name ? timer_name : "Timer");
-        printf("Timer ID: %d\n", timer_id);
-        printf("Number of processes: %d\n", size);
-        printf("Minimum time: %.6f seconds\n", min_time);
-        printf("Maximum time: %.6f seconds\n", max_time);
-        printf("Average time: %.6f seconds\n", avg_time);
-        printf("Standard deviation: %.6f seconds\n", std_dev);
-        printf("Total cumulative time: %.6f seconds\n", total_time);
-        printf("Load imbalance: %.2f%%\n", ((max_time - min_time) / avg_time) * 100.0);
-        printf("===============================\n\n");
+        stddev = sqrt(sumsq / (double)size);
+        stats->min = minv;
+        stats->max = maxv;
+        stats->avg = avg_local;
+        stats->stddev = stddev;
+        stats->sum = sumv;
+        stats->count = size;
     }
+    return 0;
 }
 
-// Report timing for all completed timers
-void report_all_timers(MPI_Comm comm)
+void report_timer_stats(int timer_id, MPI_Comm comm, const char *label)
 {
     int rank;
     MPI_Comm_rank(comm, &rank);
-    
-    if (rank == 0) {
-        printf("\n=== Summary of All Timers ===\n");
-    }
-    
-    for (int i = 0; i < next_timer_id; i++) {
-        char timer_name[32];
-        snprintf(timer_name, sizeof(timer_name), "Timer %d", i);
-        report_timer_stats(i, comm, timer_name);
+    timer_stats_t s;
+    if (compute_timer_stats(timer_id, comm, &s) == 0 && rank == 0) {
+        printf("[TIMER %d] %-12s min=%g max=%g avg=%g stddev=%g sum=%g n=%d\n",
+               timer_id, label ? label : "(unnamed)", s.min, s.max, s.avg, s.stddev, s.sum, s.count);
     }
 }
 
-// Utility function to benchmark a code section
-double benchmark_section(MPI_Comm comm, void (*function_to_benchmark)(void), const char* section_name)
+// Binary persistence of timing data
+// File format (all little-endian native, not portable across arch with different endianness):
+// struct Header {
+//   char magic[8] = "TMRBIN\0"; // 7 chars + NUL
+//   int  version = 1;
+//   int  max_timers;            // sanity check (should equal MAX_TIMERS)
+//   int  next_timer_id;         // number of timers started so far
+// };
+// Then arrays of length max_timers:
+//   double start_times[max_timers];
+//   double end_times[max_timers];
+//   int    active_timers[max_timers];
+
+typedef struct {
+    char magic[8];
+    int version;
+    int max_timers;
+} TimerBinHeader;
+
+int save_timers_binary(const char *filename, MPI_Comm comm)
 {
-    int timer_id = start_new_timer(comm);
-    if (timer_id < 0) {
-        return -1.0;
+    int rank = 0;
+    if (comm != MPI_COMM_NULL) {
+        MPI_Comm_rank(comm, &rank);
     }
-    
-    // Execute the function to benchmark
-    if (function_to_benchmark) {
-        function_to_benchmark();
+    int rc = 0;
+    if (rank == 0) {
+        FILE *f = fopen(filename, "wb");
+        if (!f) {
+            fprintf(stderr, "Could not open %s for writing timing data.\n", filename);
+            rc = -1;
+        } else {
+            TimerBinHeader hdr;
+            memset(&hdr, 0, sizeof(hdr));
+            strncpy(hdr.magic, "TMRBIN\0", sizeof(hdr.magic)-1);
+            hdr.version = 1;
+            hdr.max_timers = MAX_TIMERS;
+            size_t wrote = 0;
+            wrote = fwrite(&hdr, sizeof(hdr), 1, f);
+            if (wrote != 1) rc = -2;
+            if (rc == 0 && fwrite(start_times, sizeof(double), MAX_TIMERS, f) != (size_t)MAX_TIMERS) rc = -3;
+            if (rc == 0 && fwrite(end_times, sizeof(double), MAX_TIMERS, f) != (size_t)MAX_TIMERS) rc = -4;
+            if (rc == 0 && fwrite(active_timers, sizeof(int), MAX_TIMERS, f) != (size_t)MAX_TIMERS) rc = -5;
+            fclose(f);
+        }
     }
-    
-    stop_timer(timer_id, comm);
-    
-    // Report results if a name is provided
-    if (section_name) {
-        report_timer_stats(timer_id, comm, section_name);
-    }
-    
-    return get_elapsed_time(timer_id);
+    return rc;
 }
+
+int load_timers_binary(const char *filename, MPI_Comm comm)
+{
+    int rank = 0;
+    if (comm != MPI_COMM_NULL) MPI_Comm_rank(comm, &rank);
+    int rc = 0;
+    TimerBinHeader hdr;
+
+    FILE *f = fopen(filename, "rb");
+    if (!f) {
+        fprintf(stderr, "[rank %d] Could not open %s for reading timing data.\n", rank, filename);
+        return -1;
+    }
+
+    if (fread(&hdr, sizeof(hdr), 1, f) != 1) {
+        rc = -2;
+    } else if (strncmp(hdr.magic, "TMRBIN", 6) != 0 || hdr.version != 1) {
+        rc = -3; // bad header
+    } else if (hdr.max_timers != MAX_TIMERS) {
+        rc = -4; // mismatched build/runtime constant
+    } else {
+        if (fread(start_times, sizeof(double), MAX_TIMERS, f) != (size_t)MAX_TIMERS) rc = -5;
+        if (rc == 0 && fread(end_times, sizeof(double), MAX_TIMERS, f) != (size_t)MAX_TIMERS) rc = -6;
+        if (rc == 0 && fread(active_timers, sizeof(int), MAX_TIMERS, f) != (size_t)MAX_TIMERS) rc = -7;
+    }
+    fclose(f);
+
+    return rc;
+}
+

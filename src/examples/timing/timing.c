@@ -1,239 +1,226 @@
 #include "timing.h"
+#include "dmr.h"
 
-// Example computation functions to benchmark
-void computation_heavy()
-{
-    volatile double result = 0.0;
-    for (int i = 0; i < 1000000; i++) {
-        result += sin(i * 0.001) * cos(i * 0.001);
+// File-scope helper to append CSV timing results (path provided via CLI)
+static void append_result_line(int rank, const char *csv_path,
+                               int initial_size, int exp_amt, int shr_amt,
+                               double expand_t, double shrink_t, double total_t) {
+    if (rank != 0 || !csv_path) return;
+    FILE *af = fopen(csv_path, "a");
+    if (af) {
+        fprintf(af, "%d,%d,%d,%.9f,%.9f,%.9f\n", initial_size, exp_amt, shr_amt, expand_t, shrink_t, total_t);
+        fclose(af);
+    } else {
+        fprintf(stderr, "Rank 0: Failed to append to %s.\n", csv_path);
     }
 }
 
-void computation_light()
-{
-    volatile int result = 0;
-    for (int i = 0; i < 100000; i++) {
-        result += i * i;
+// Simple checkpoint: store current iteration (and optionally size) to a global file
+static void timing_checkpoint(int rank, int current_iter, const char *ckpt_file) {
+    if (rank != 0) return;
+    FILE *cfw = fopen(ckpt_file, "w");
+    if (!cfw) {
+        fprintf(stderr, "Rank 0: Failed to write checkpoint %s\n", ckpt_file);
+        return;
     }
+    // Store only iteration for robustness. (Initial size kept separate.)
+    fprintf(cfw, "%d\n", current_iter);
+    fclose(cfw);
+
+    save_timers_binary("checkpoints/timing_checkpoint_timers.bin", DMR_WORLD_COMM);
 }
 
-void computation_medium()
-{
-    volatile double result = 0.0;
-    for (int i = 0; i < 500000; i++) {
-        result += sqrt(i + 1);
+// Restart callback used with DMR_AUTO after reconfiguration
+static void timing_restart(int *start_iter, const char *ckpt_file, int *expand_amount, int expand_iter, int *shrink_amount, int shrink_iter) {
+    int rank;
+    MPI_Comm_rank(DMR_WORLD_COMM, &rank);
+    // Each rank independently opens and reads the checkpoint file (no broadcast)
+    FILE *cf = fopen(ckpt_file, "r");
+    if (cf) {
+        int stored_iter = 0;
+        if (fscanf(cf, "%d", &stored_iter) == 1) {
+            *start_iter = stored_iter;
+        }
+        fclose(cf);
+    } else {
+        // Silent failure is acceptable (fresh start); could log on one rank if desired
     }
+
+    // Load timers (each rank reads its own copy now)
+    load_timers_binary("checkpoints/timing_checkpoint_timers.bin", DMR_WORLD_COMM);
 }
 
 // Distributed computation that works across multiple processes
 void distributed_computation_work(int rank, int size)
 {
-    // Distribute work based on rank
-    int work_start = rank * 250000;
-    int work_end = (rank + 1) * 250000;
+    // Define total work to be distributed among all processes
+    const int total_work = 1000000;  // Total iterations to distribute
     
-    volatile double result = 0.0;
+    // Calculate work chunk size per process
+    int work_per_process = total_work / size;
+    int remainder = total_work % size;
+    
+    // Distribute work based on rank and size
+    int work_start = rank * work_per_process;
+    int work_end = work_start + work_per_process;
+    
+    // Distribute remainder work to the first few processes
+    if (rank < remainder) {
+        work_start += rank;
+        work_end += rank + 1;
+    } else {
+        work_start += remainder;
+        work_end += remainder;
+    }
+    
     for (int i = work_start; i < work_end; i++) {
-        result += sin(i * 0.001) * cos(i * 0.001);
-        if (i % 10000 == 0) {
-            result += sqrt(i + 1);
+        sleep(0.00001); // Simulate work
+    }
+}
+
+// Helper: parse simple key=value plan file (lines: key=value, comments starting with #)
+static void parse_plan_file(const char *path, int rank,
+                            int *expand_amount, int *shrink_amount,
+                            int *expand_iter, int *shrink_iter,
+                            int *total_iters, int *initial_np) {
+    if (!path) return;
+    FILE *pf = fopen(path, "r");
+    if (!pf) {
+        if (rank == 0) fprintf(stderr, "Could not open plan file %s\n", path);
+        return;
+    }
+    char line[256];
+    while (fgets(line, sizeof(line), pf)) {
+        char *p = line;
+        while (*p==' ' || *p=='\t') ++p;
+        if (*p=='#' || *p=='\n' || *p=='\0') continue;
+        char key[64];
+        char value[64];
+        if (sscanf(p, "%63[^=]=%63s", key, value) == 2) {
+            if (strcmp(key, "expand") == 0)      *expand_amount = atoi(value);
+            else if (strcmp(key, "shrink") == 0) *shrink_amount = atoi(value);
+            else if (strcmp(key, "expand_iter") == 0) *expand_iter = atoi(value);
+            else if (strcmp(key, "shrink_iter") == 0) *shrink_iter = atoi(value);
+            else if (strcmp(key, "iters") == 0) *total_iters = atoi(value);
+            else if (strcmp(key, "initial_np") == 0) *initial_np = atoi(value);
         }
     }
+    
+    fclose(pf);
 }
 
 int main(int argc, char *argv[])
 {
-    // Initialize MPI environment
     MPI_Init(&argc, &argv);
-
-    // Get MPI rank and size information
     int rank, size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    if (rank == 0) {
-        printf("DMR Timing Example - Expand/Shrink Performance Analysis\n");
-        printf("Running on %d processes\n", size);
-        printf("========================================================\n\n");
+    int expand_amount = 0;      // effective expansion amount (may be zeroed after restart)
+    int shrink_amount = 0;      // effective shrink amount (may be zeroed after restart)
+    int total_iters = 10;       // total compute iterations (may be overridden by plan)
+    int expand_iter = 2;        // iteration index at which to trigger expansion (0-based)
+    int shrink_iter = 7;        // iteration index at which to trigger shrink (0-based)
+
+    const char *csv_path = NULL;
+    const char *ckpt_path = NULL;
+    int initial_np = -1;        // may be overridden by plan; if still -1 after init, set to size
+    const char *plan_path = NULL; // optional plan file overriding expand/shrink params
+
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--csv") == 0 && i + 1 < argc) csv_path = argv[++i];
+        else if (strcmp(argv[i], "--ckpt") == 0 && i + 1 < argc) ckpt_path = argv[++i];
+        else if (strcmp(argv[i], "--plan") == 0 && i + 1 < argc) plan_path = argv[++i];
+        else if (strcmp(argv[i], "--help") == 0) {
+            if (rank == 0) {
+                printf("Usage: ./timing --csv <file> --ckpt <file> [--plan file]\n");
+                printf("  Iteration count, initial_np, and any expansion/shrink behavior now come solely from the optional plan file.\n");
+                printf("  Plan file lines: key=value (expand, shrink, expand_iter, shrink_iter, iters, initial_np). Comments with #.\n");
+                printf("  CSV file must exist with header (created by script). Program appends one line.\n");
+                printf("  Checkpoint file path is required; program writes iteration index each loop.\n");
+                printf("  --plan file sets expand/shrink behavior (if omitted, no reconfiguration occurs unless defaults changed in source).\n");
+            }
+            MPI_Finalize();
+            return 0;
+        }
     }
 
-    // Initialize DMR system
-    DMR_AUTO(dmr_init(argc, argv), (void)NULL, (void)NULL, (void)NULL);
-    
-    // Update rank and size after DMR initialization
-    MPI_Comm_rank(DMR_WORLD_COMM, &rank);
-    MPI_Comm_size(DMR_WORLD_COMM, &size);
+    // If a plan file provided, parse after CLI so file can override (script-driven)
+    parse_plan_file(plan_path, rank, &expand_amount, &shrink_amount,
+                    &expand_iter, &shrink_iter, &total_iters, &initial_np);
 
-    // Set expansion/shrink parameters for rank 0 (coordinator)
-    if (rank == 0) {
-        dmr_set_procs_next_expand(size + 2);
-        dmr_set_procs_next_shrink(size - 1);
+    if (csv_path == NULL || ckpt_path == NULL) {
+        if (rank == 0) fprintf(stderr, "Error: --csv and --ckpt paths are required.\n");
+        MPI_Finalize();
+        return 1;
     }
 
-    // Initialize the advanced timing system
+    if (rank == 0) {
+        printf("DMR Timing Single Run (pre-init): req_expand=%d (iter=%d) req_shrink=%d (iter=%d) total_iters=%d\n",
+               expand_amount, expand_iter, shrink_amount, shrink_iter, total_iters);
+        if (plan_path) {
+            printf("Loaded plan file: %s\n", plan_path);
+        }
+    }
+
     init_timing_system();
 
-    // Example 1: Baseline computation without expand/shrink
-    if (rank == 0) {
-        printf("Example 1: Baseline computation without expand/shrink\n");
-    }
-    
-    int baseline_timer = start_new_timer(DMR_WORLD_COMM);
-    
-    // Perform 5 rounds of distributed computation
-    for (int round = 0; round < 5; round++) {
-        distributed_computation_work(rank, size);
-        MPI_Barrier(DMR_WORLD_COMM);  // Synchronize between rounds
-    }
-    
-    stop_timer(baseline_timer, DMR_WORLD_COMM);
-    report_timer_stats(baseline_timer, DMR_WORLD_COMM, "Baseline Computation (No Expand/Shrink)");
+    int start_iter = 0;           // will be set by timing_restart if resuming
+    DMR_AUTO(dmr_init(argc, argv), (void)NULL,
+             timing_restart(&start_iter, ckpt_path, &expand_amount, expand_iter, &shrink_amount, shrink_iter),
+             (void)NULL);
 
-    // Example 2: Computation with expansion and shrinking
+    // Start total runtime timer (ID 0)
+    start_timer(0, DMR_WORLD_COMM);
+
+    // Set desired dynamic reconfiguration targets (only rank 0) with guards
     if (rank == 0) {
-        printf("\nExample 2: Computation with expansion and shrinking\n");
+        if (expand_amount > 0) dmr_set_procs_next_expand(expand_amount);
+        if (shrink_amount > 0) dmr_set_procs_next_shrink(shrink_amount);
     }
 
-    int expand_shrink_timer = start_new_timer(DMR_WORLD_COMM);
-    int expand_timer, shrink_timer, computation_between_timer;
-    
-    // Phase 1: Initial computation
-    distributed_computation_work(rank, size);
+    if (start_iter > 0 && rank == 0) {
+        printf("Resumed from checkpoint via DMR restart callback: start_iter=%d (total=%d)\n", start_iter, total_iters);
+    }
+
     MPI_Barrier(DMR_WORLD_COMM);
-    
-    // Phase 2: Expand operation
-    if (rank == 0) {
-        printf("  Triggering expansion...\n");
-    }
-    
-    expand_timer = start_new_timer(DMR_WORLD_COMM);
-    DMR_AUTO(dmr_check(SHOULD_EXPAND), (void)NULL, (void)NULL, (void)NULL);
-    stop_timer(expand_timer, DMR_WORLD_COMM);
-    
-    // Update communicator and process info after expansion
-    MPI_Comm_rank(DMR_WORLD_COMM, &rank);
-    MPI_Comm_size(DMR_WORLD_COMM, &size);
-    
-    // Phase 3: Computation with expanded processes
-    computation_between_timer = start_new_timer(DMR_WORLD_COMM);
-    for (int round = 0; round < 3; round++) {
+
+    for (int iter = start_iter; iter < total_iters; ++iter) {
+        printf("Rank %d starting iteration %d\n", rank, iter);
+        // After potential reconfiguration completes, stop phase timers if they were started this iteration
+        if (iter == (expand_iter + 1) && expand_amount > 0) {
+                stop_timer(1, DMR_WORLD_COMM);
+            }
+        if (iter == (shrink_iter + 1) && shrink_amount > 0) {
+                stop_timer(2, DMR_WORLD_COMM);
+            }
+
         distributed_computation_work(rank, size);
-        MPI_Barrier(DMR_WORLD_COMM);
-    }
-    stop_timer(computation_between_timer, DMR_WORLD_COMM);
-    
-    // Phase 4: Shrink operation  
-    if (rank == 0) {
-        printf("  Triggering shrinking...\n");
-    }
-    
-    shrink_timer = start_new_timer(DMR_WORLD_COMM);
-    DMR_AUTO(dmr_check(SHOULD_SHRINK), (void)NULL, (void)NULL, (void)NULL);
-    stop_timer(shrink_timer, DMR_WORLD_COMM);
-    
-    // Update process info after shrinking
-    MPI_Comm_rank(DMR_WORLD_COMM, &rank);
-    MPI_Comm_size(DMR_WORLD_COMM, &size);
-    
-    // Phase 5: Final computation with reduced processes
-    distributed_computation_work(rank, size);
-    MPI_Barrier(DMR_WORLD_COMM);
-    
-    stop_timer(expand_shrink_timer, DMR_WORLD_COMM);
 
-    // Report detailed timing results for expand/shrink operations
-    report_timer_stats(expand_timer, DMR_WORLD_COMM, "Expansion Operation");
-    report_timer_stats(computation_between_timer, DMR_WORLD_COMM, "Computation with Expanded Processes");
-    report_timer_stats(shrink_timer, DMR_WORLD_COMM, "Shrinking Operation");
-    report_timer_stats(expand_shrink_timer, DMR_WORLD_COMM, "Total with Expand/Shrink");
+        DMRSuggestion suggestion = SHOULD_STAY;
 
-    // Example 3: Performance comparison
-    if (rank == 0) {
-        printf("\nExample 3: Performance comparison and analysis\n");
-        printf("==============================================\n");
-        
-        double baseline_time = get_elapsed_time(baseline_timer);
-        double expand_shrink_time = get_elapsed_time(expand_shrink_timer);
-        double expand_time = get_elapsed_time(expand_timer);
-        double shrink_time = get_elapsed_time(shrink_timer);
-        double computation_between_time = get_elapsed_time(computation_between_timer);
-        
-        printf("Baseline computation time: %.6f seconds\n", baseline_time);
-        printf("Computation with expand/shrink: %.6f seconds\n", expand_shrink_time);
-        printf("Expand operation time: %.6f seconds\n", expand_time);
-        printf("Shrink operation time: %.6f seconds\n", shrink_time);
-        printf("Computation on expanded processes: %.6f seconds\n", computation_between_time);
-        
-        double overhead = expand_shrink_time - baseline_time;
-        double reconfiguration_overhead = expand_time + shrink_time;
-        
-        printf("\nOverhead Analysis:\n");
-        printf("Total overhead: %.6f seconds (%.2f%%)\n", 
-               overhead, (overhead / baseline_time) * 100.0);
-        printf("Reconfiguration overhead: %.6f seconds (%.2f%%)\n", 
-               reconfiguration_overhead, (reconfiguration_overhead / baseline_time) * 100.0);
-        
-        if (overhead > 0) {
-            printf("Expand/shrink adds %.2f%% overhead to computation\n", 
-                   (overhead / baseline_time) * 100.0);
-        } else {
-            printf("Expand/shrink provides %.2f%% performance improvement\n", 
-                   -(overhead / baseline_time) * 100.0);
+        if (iter == expand_iter && expand_amount > 0) {
+            suggestion = SHOULD_EXPAND;
+            start_timer(1, DMR_WORLD_COMM);
         }
-    }
-
-    // Example 4: Multiple expand/shrink cycles timing
-    if (rank == 0) {
-        printf("\nExample 4: Multiple expand/shrink cycles\n");
-    }
-
-    int multi_cycle_timer = start_new_timer(DMR_WORLD_COMM);
-    
-    for (int cycle = 0; cycle < 3; cycle++) {
-        if (rank == 0) {
-            printf("  Cycle %d: Computing -> Expanding -> Computing -> Shrinking\n", cycle + 1);
+        if (iter == shrink_iter && shrink_amount > 0) {
+            suggestion = SHOULD_SHRINK;
+            start_timer(2, DMR_WORLD_COMM);
         }
-        
-        // Computation
-        distributed_computation_work(rank, size);
-        
-        // Expand
-        DMR_AUTO(dmr_check(SHOULD_EXPAND), (void)NULL, (void)NULL, (void)NULL);
-        MPI_Comm_rank(DMR_WORLD_COMM, &rank);
-        MPI_Comm_size(DMR_WORLD_COMM, &size);
-        
-        // Computation with expanded processes
-        distributed_computation_work(rank, size);
-        
-        // Shrink
-        DMR_AUTO(dmr_check(SHOULD_SHRINK), (void)NULL, (void)NULL, (void)NULL);
-        MPI_Comm_rank(DMR_WORLD_COMM, &rank);
-        MPI_Comm_size(DMR_WORLD_COMM, &size);
-    }
-    
-    stop_timer(multi_cycle_timer, DMR_WORLD_COMM);
-    report_timer_stats(multi_cycle_timer, DMR_WORLD_COMM, "Multiple Expand/Shrink Cycles");
 
-    // Example 5: Summary report of all timers
-    if (rank == 0) {
-        printf("\nExample 5: Summary of all timing measurements\n");
-    }
-    report_all_timers(DMR_WORLD_COMM);
-
-    // Final performance analysis
-    if (rank == 0) {
-        printf("\n=== FINAL PERFORMANCE ANALYSIS ===\n");
-        printf("Baseline (no expand/shrink): %.6f seconds\n", get_elapsed_time(baseline_timer));
-        printf("Single expand/shrink cycle: %.6f seconds\n", get_elapsed_time(expand_shrink_timer));
-        printf("Multiple cycles: %.6f seconds\n", get_elapsed_time(multi_cycle_timer));
-        printf("====================================\n");
+        DMR_AUTO(dmr_check(suggestion), timing_checkpoint(rank, iter + 1, ckpt_path), timing_restart(&start_iter, ckpt_path, &expand_amount, expand_iter, &shrink_amount, shrink_iter), (void)NULL);
     }
 
-    // Finalize DMR system
+    stop_timer(0, DMR_WORLD_COMM);
+    double total_time = get_elapsed_time(0);
+    double expand_time = get_elapsed_time(1);  // 0 if not used
+    double shrink_time = get_elapsed_time(2);  // 0 if not used
+    // Collective statistics summary (rank 0 prints)
+    report_timer_stats(0, DMR_WORLD_COMM, "total");
+    if (expand_amount > 0) report_timer_stats(1, DMR_WORLD_COMM, "expand");
+    if (shrink_amount > 0) report_timer_stats(2, DMR_WORLD_COMM, "shrink");
+    append_result_line(rank, csv_path, initial_np, expand_amount, shrink_amount, expand_time, shrink_time, total_time);
     DMR_AUTO(dmr_finalize(), (void)NULL, (void)NULL, (void)NULL);
-
-    // Finalize MPI environment
     MPI_Finalize();
-    
     return EXIT_SUCCESS;
 }
