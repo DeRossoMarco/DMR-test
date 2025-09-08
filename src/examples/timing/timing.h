@@ -20,6 +20,7 @@ void init_timing_system(void);
 void start_timer(int timer_id, MPI_Comm comm);
 void stop_timer(int timer_id, MPI_Comm comm);
 double get_elapsed_time(int timer_id);
+double get_accumulated_time(int timer_id);  // Get total accumulated time across all sessions
 int save_timers_binary(const char *filename, MPI_Comm comm);
 int load_timers_binary(const char *filename, MPI_Comm comm);
 

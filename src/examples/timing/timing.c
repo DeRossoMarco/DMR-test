@@ -149,6 +149,11 @@ int main(int argc, char *argv[])
     parse_plan_file(plan_path, rank, &expand_amount, &shrink_amount,
                     &expand_iter, &shrink_iter, &total_iters, &initial_np);
 
+    // If initial_np was not set by plan file, use current size
+    if (initial_np == -1) {
+        initial_np = size;
+    }
+
     if (csv_path == NULL || ckpt_path == NULL) {
         if (rank == 0) fprintf(stderr, "Error: --csv and --ckpt paths are required.\n");
         MPI_Finalize();
@@ -178,7 +183,10 @@ int main(int argc, char *argv[])
 
     if (start_iter > 0 && rank == 0) {
         printf("Resumed from checkpoint via DMR restart callback: start_iter=%d (total=%d)\n", start_iter, total_iters);
-    } else {
+    }
+    
+    // Always start timer 0 if it's not already running (handles both fresh start and restart)
+    if (dmr_get_reconfig_count() == 0 || start_iter > 0) {
         start_timer(0, DMR_WORLD_COMM);
     }
 
@@ -187,10 +195,10 @@ int main(int argc, char *argv[])
     for (int iter = start_iter; iter < total_iters; ++iter) {
         printf("Rank %d starting iteration %d\n", rank, iter);
         // After potential reconfiguration completes, stop phase timers if they were started this iteration
-        if (iter == (expand_iter + 1) && expand_amount > 0) {
+        if (dmr_get_reconfig_count() == 1) {
                 stop_timer(1, DMR_WORLD_COMM);
             }
-        if (iter == (shrink_iter + 1) && shrink_amount > 0) {
+        if (dmr_get_reconfig_count() == 2) {
                 stop_timer(2, DMR_WORLD_COMM);
             }
 
