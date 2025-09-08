@@ -4,7 +4,6 @@ src/**/*.o
 # Binary files
 counter
 timing
-comprehensive_timing
 
 # SLURM run output
 slurm-*.out
@@ -24,3 +23,9 @@ plans
 # Keep examples directories
 !src/examples/counter/
 !src/examples/timing/
+
+# Nodefiles
+nodefile.*
+
+# Data
+data

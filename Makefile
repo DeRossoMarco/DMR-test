@@ -53,6 +53,7 @@ clean:
 	rm -f plans/*
 	rm -f results/*.csv
 	rm -f results/*.png
+	rm -f nodefile.*
 
 # Clean everything including checkpoints
 clean-all: clean
@@ -96,4 +97,4 @@ help:
 	@echo ""
 	@echo "Available examples: $(EXAMPLES)"
 
-.PHONY: all clean clean-all list new-example help build-%
+.PHONY: all clean list new-example help build-%
