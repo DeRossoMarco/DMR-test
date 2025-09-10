@@ -227,7 +227,7 @@ int main(int argc, char *argv[])
     if (expand_amount > 0) report_timer_stats(1, DMR_WORLD_COMM, "expand");
     if (shrink_amount > 0) report_timer_stats(2, DMR_WORLD_COMM, "shrink");
     append_result_line(rank, csv_path, initial_np, expand_amount, shrink_amount, expand_time, shrink_time, total_time);
-    dmr_finalize();
+    DMR_AUTO(dmr_finalize(), (void)NULL, (void)NULL, (void)NULL);
     MPI_Finalize();
     return EXIT_SUCCESS;
 }

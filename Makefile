@@ -51,8 +51,7 @@ clean:
 	rm -f slurm-*.out
 	rm -f checkpoints/*
 	rm -f plans/*
-	rm -f results/*.csv
-	rm -f results/*.png
+	rm -f results/*
 	rm -f nodefile.*
 
 # Clean everything including checkpoints
