@@ -156,7 +156,7 @@ set_timeout_for_np() {
       TIMEOUT_SECONDS=100
       ;;
     128)
-      TIMEOUT_SECONDS=60
+      TIMEOUT_SECONDS=80
       ;;
     *)
       # Default scaling: base 300s + 50s per 8 processes
@@ -251,8 +251,6 @@ run_case() {
   local ckpt_file="checkpoints/timing_np${np}_rep${rep}.chk"
   local plan_file="plans/plan_np${np}_${label}_rep${rep}.cfg"
   
-  echo "--- np=${np} ${label} repetition ${rep} (expand=${exp} shrink=${shr}) ---"
-  
   # Check for and cleanup any existing processes before starting
   check_existing_processes
   
@@ -326,8 +324,6 @@ for NP in $PROCESS_LIST; do
   csv_file="results/timing_np${NP}.csv"
   ckpt_file="checkpoints/timing_np${NP}.chk"
   plan_file="plans/plan_np${NP}_baseline.cfg"
-  
-  echo "--- np=${NP} baseline (expand=0 shrink=0) ---"
   
   # Ensure clean environment
   check_existing_processes
