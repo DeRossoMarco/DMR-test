@@ -11,6 +11,12 @@
 
 #========================================
 # DMR Timing Performance Benchmark Script
+#
+# Features:
+# - Automatic retry on SIGPIPE and communication errors
+# - Configurable retry attempts (MAX_RETRY_ATTEMPTS)
+# - Process cleanup between attempts
+# - Detailed logging of retry attempts
 #========================================
 
 #----------------------------------------
@@ -93,6 +99,7 @@ PROCESS_LIST="64 32 16 8"
 
 # Test repetition configuration
 NUM_REPETITIONS=5        # number of times to repeat each test case
+MAX_RETRY_ATTEMPTS=3     # maximum retry attempts for failed runs (due to SIGPIPE, etc.)
 
 # Iteration configuration (total iterations and trigger indices)
 TOTAL_ITERS=10           # total compute iterations
@@ -237,16 +244,69 @@ check_existing_processes() {
 # Test Execution Functions
 #----------------------------------------
 
-# Run a single test scenario
+# Function to check if a test run failed due to SIGPIPE or other recoverable errors
+check_run_failure() {
+  local out_file=$1
+  
+  if [ ! -f "$out_file" ]; then
+    echo "Output file not found, considering as failure"
+    return 0  # Failure (file doesn't exist)
+  fi
+  
+  # Check for SIGPIPE errors
+  if grep -q "SIGPIPE" "$out_file"; then
+    echo "SIGPIPE error detected in output"
+    return 0  # Failure
+  fi
+  
+  # Check for other MPI/communication errors
+  if grep -q "Broken pipe" "$out_file"; then
+    echo "Broken pipe error detected in output"
+    return 0  # Failure
+  fi
+  
+  if grep -q "Connection reset by peer" "$out_file"; then
+    echo "Connection reset by peer error detected in output"
+    return 0  # Failure
+  fi
+  
+  if grep -q "prterun.*abort" "$out_file"; then
+    echo "MPI abort detected in output"
+    return 0  # Failure
+  fi
+  
+  # Check if the timing program completed successfully
+  # Look for expected completion indicators
+  if ! grep -q "starting iteration" "$out_file"; then
+    echo "No iteration progress found, considering as failure"
+    return 0  # Failure
+  fi
+  
+  # If none of the failure patterns found, consider success
+  return 1  # Success
+}
+
+# Run a single test scenario with retry capability
 run_case() {
   local np=$1
   local exp=$2
   local shr=$3
   local label=$4
   local rep=$5  # repetition number
+  local attempt=$6  # attempt number (optional, defaults to 1)
+  
+  # Set default attempt number if not provided
+  if [ -z "$attempt" ]; then
+    attempt=1
+  fi
   
   # Define file paths for this test case
-  local out_file="results/timing_run_np${np}_${label}_rep${rep}.out"
+  local base_out_file="results/timing_run_np${np}_${label}_rep${rep}"
+  local out_file="${base_out_file}.out"
+  if [ "$attempt" -gt 1 ]; then
+    out_file="${base_out_file}_attempt${attempt}.out"
+  fi
+  
   local csv_file="results/timing_np${np}.csv"
   local ckpt_file="checkpoints/timing_np${np}_rep${rep}.chk"
   local plan_file="plans/plan_np${np}_${label}_rep${rep}.cfg"
@@ -269,19 +329,170 @@ EOF
   local cmd=(timeout "$TIMEOUT_SECONDS" dmr_wrapper mpirun --with-ft ulfm --hostfile "$NODEFILE" -np "${np}" ./timing \
     --csv ${csv_file} --ckpt ${ckpt_file} --plan ${plan_file})
   
-  echo "Running command: ${cmd[*]}"
+  echo "Running command (attempt $attempt): ${cmd[*]}"
   "${cmd[@]}" | tee "${out_file}"
   local exit_code=$?
   
   # Check execution status
+  local run_failed=0
   if [ $exit_code -eq 124 ]; then
     echo "WARNING: Test case timed out after $TIMEOUT_SECONDS seconds"
+    run_failed=1
   elif [ $exit_code -ne 0 ]; then
     echo "WARNING: Test case exited with non-zero status: $exit_code"
+    run_failed=1
   fi
   
   # Always cleanup processes after each run
   cleanup_timing_processes
+  
+  # Give tee time to flush output to file
+  sleep 2
+  
+  # Additional check for specific error patterns in output
+  if check_run_failure "$out_file"; then
+    run_failed=1
+  fi
+  
+  # Return status: 0 for success, 1 for failure
+  return $run_failed
+}
+
+# Run a test case with automatic retry on failure
+run_case_with_retry() {
+  local np=$1
+  local exp=$2
+  local shr=$3
+  local label=$4
+  local rep=$5
+  
+  local attempt=1
+  local max_attempts=$MAX_RETRY_ATTEMPTS
+  local success=0
+  
+  echo "*** Running $label repetition $rep/$NUM_REPETITIONS for NP=$np ***"
+  
+  # Clean up checkpoint files for this repetition
+  local ckpt_file="checkpoints/timing_np${np}_rep${rep}.chk"
+  local timers_ckpt="checkpoints/timing_checkpoint_timers.bin"
+  
+  while [ $attempt -le $max_attempts ] && [ $success -eq 0 ]; do
+    if [ $attempt -gt 1 ]; then
+      echo "*** Retrying $label repetition $rep/$NUM_REPETITIONS for NP=$np (attempt $attempt/$max_attempts) ***"
+    fi
+    
+    # Clean up checkpoint files before each attempt
+    if [ -f "$ckpt_file" ]; then rm -f "$ckpt_file"; fi
+    if [ -f "$timers_ckpt" ]; then rm -f "$timers_ckpt"; fi
+    
+    # Run the test case
+    if run_case "$np" "$exp" "$shr" "$label" "$rep" "$attempt"; then
+      echo "SUCCESS: $label repetition $rep completed successfully on attempt $attempt"
+      success=1
+    else
+      echo "FAILURE: $label repetition $rep failed on attempt $attempt"
+      if [ $attempt -lt $max_attempts ]; then
+        echo "Will retry in 10 seconds..."
+        sleep 10
+      else
+        echo "ERROR: $label repetition $rep failed after $max_attempts attempts"
+      fi
+      ((attempt++))
+    fi
+  done
+  
+  return $((1 - success))  # Return 0 for success, 1 for failure
+}
+
+# Run baseline test with retry logic
+run_baseline_with_retry() {
+  local np=$1
+  local attempt=1
+  local max_attempts=$MAX_RETRY_ATTEMPTS
+  local success=0
+  
+  echo "*** Running baseline for NP=$np ***"
+  
+  while [ $attempt -le $max_attempts ] && [ $success -eq 0 ]; do
+    if [ $attempt -gt 1 ]; then
+      echo "*** Retrying baseline for NP=$np (attempt $attempt/$max_attempts) ***"
+    fi
+    
+    # Clean up any existing checkpoint files
+    local ckpt_file="checkpoints/timing_np${np}.chk"
+    local timers_ckpt="checkpoints/timing_checkpoint_timers.bin"
+    if [ -f "$ckpt_file" ]; then rm -f "$ckpt_file"; fi
+    if [ -f "$timers_ckpt" ]; then rm -f "$timers_ckpt"; fi
+    
+    # Set up baseline test files
+    local base_out_file="results/timing_run_np${np}_baseline"
+    local out_file="${base_out_file}.out"
+    if [ "$attempt" -gt 1 ]; then
+      out_file="${base_out_file}_attempt${attempt}.out"
+    fi
+    
+    local csv_file="results/timing_np${np}.csv"
+    local plan_file="plans/plan_np${np}_baseline.cfg"
+    
+    # Ensure clean environment
+    check_existing_processes
+    
+    # Create baseline plan file
+    mkdir -p plans
+    cat > "${plan_file}" <<EOF
+initial_np=${np}
+expand=0
+shrink=0
+expand_iter=${EXPAND_ITER}
+shrink_iter=${SHRINK_ITER}
+iters=${TOTAL_ITERS}
+EOF
+
+    # Execute baseline test
+    local cmd=(timeout "$TIMEOUT_SECONDS" dmr_wrapper mpirun --with-ft ulfm --hostfile "$NODEFILE" -np "${np}" ./timing \
+      --csv ${csv_file} --ckpt ${ckpt_file} --plan ${plan_file})
+    
+    echo "Running baseline command (attempt $attempt): ${cmd[*]}"
+    "${cmd[@]}" | tee "${out_file}"
+    local exit_code=$?
+    
+    # Check baseline execution status
+    local run_failed=0
+    if [ $exit_code -eq 124 ]; then
+      echo "WARNING: Baseline test timed out after $TIMEOUT_SECONDS seconds"
+      run_failed=1
+    elif [ $exit_code -ne 0 ]; then
+      echo "WARNING: Baseline test exited with non-zero status: $exit_code"
+      run_failed=1
+    fi
+    
+    # Cleanup after baseline
+    cleanup_timing_processes
+    
+    # Give tee time to flush output to file
+    sleep 2
+    
+    # Additional check for specific error patterns in output
+    if check_run_failure "$out_file"; then
+      run_failed=1
+    fi
+    
+    if [ $run_failed -eq 0 ]; then
+      echo "SUCCESS: Baseline test completed successfully on attempt $attempt"
+      success=1
+    else
+      echo "FAILURE: Baseline test failed on attempt $attempt"
+      if [ $attempt -lt $max_attempts ]; then
+        echo "Will retry baseline in 10 seconds..."
+        sleep 10
+      else
+        echo "ERROR: Baseline test failed after $max_attempts attempts"
+      fi
+      ((attempt++))
+    fi
+  done
+  
+  return $((1 - success))  # Return 0 for success, 1 for failure
 }
 
 #========================================
@@ -311,51 +522,12 @@ for NP in $PROCESS_LIST; do
   # Run Baseline Test (No Expansion/Shrink)
   #----------------------------------------
   
-  echo ""; echo "*** Running baseline for NP=$NP ***"
-  
-  # Clean up any existing checkpoint files
-  ckpt_file="checkpoints/timing_np${NP}.chk"
-  timers_ckpt="checkpoints/timing_checkpoint_timers.bin"
-  if [ -f "$ckpt_file" ]; then rm -f "$ckpt_file"; fi
-  if [ -f "$timers_ckpt" ]; then rm -f "$timers_ckpt"; fi
-  
-  # Set up baseline test files
-  out_file="results/timing_run_np${NP}_baseline.out"
-  csv_file="results/timing_np${NP}.csv"
-  ckpt_file="checkpoints/timing_np${NP}.chk"
-  plan_file="plans/plan_np${NP}_baseline.cfg"
-  
-  # Ensure clean environment
-  check_existing_processes
-  
-  # Create baseline plan file
-  mkdir -p plans
-  cat > "${plan_file}" <<EOF
-initial_np=${NP}
-expand=0
-shrink=0
-expand_iter=${EXPAND_ITER}
-shrink_iter=${SHRINK_ITER}
-iters=${TOTAL_ITERS}
-EOF
-
-  # Execute baseline test
-  cmd=(timeout "$TIMEOUT_SECONDS" dmr_wrapper mpirun --with-ft ulfm --hostfile "$NODEFILE" -np "${NP}" ./timing \
-    --csv ${csv_file} --ckpt ${ckpt_file} --plan ${plan_file})
-  
-  echo "Running baseline command: ${cmd[*]}"
-  "${cmd[@]}" | tee "${out_file}"
-  exit_code=$?
-  
-  # Check baseline execution status
-  if [ $exit_code -eq 124 ]; then
-    echo "WARNING: Baseline test timed out after $TIMEOUT_SECONDS seconds"
-  elif [ $exit_code -ne 0 ]; then
-    echo "WARNING: Baseline test exited with non-zero status: $exit_code"
+  echo ""
+  run_baseline_with_retry "$NP"
+  if [ $? -ne 0 ]; then
+    echo "ERROR: Baseline test failed after all retry attempts for NP=$NP"
+    # Continue with other tests even if baseline fails
   fi
-  
-  # Cleanup after baseline
-  cleanup_timing_processes
 
   #----------------------------------------
   # Run Expand/Shrink Test Cases
@@ -383,16 +555,14 @@ EOF
     
     # Run multiple repetitions for this test case
     for rep in $(seq 1 $NUM_REPETITIONS); do
-      echo ""; echo "*** Running $label repetition $rep/$NUM_REPETITIONS for NP=$NP ***"
+      echo ""
       
-      # Clean up checkpoint files for this repetition
-      ckpt_file="checkpoints/timing_np${NP}_rep${rep}.chk"
-      timers_ckpt="checkpoints/timing_checkpoint_timers.bin"
-      if [ -f "$ckpt_file" ]; then rm -f "$ckpt_file"; fi
-      if [ -f "$timers_ckpt" ]; then rm -f "$timers_ckpt"; fi
-      
-      # Execute the test case
-      run_case "$NP" "$EXP" "$SHR" "$label" "$rep"
+      # Execute the test case with retry capability
+      run_case_with_retry "$NP" "$EXP" "$SHR" "$label" "$rep"
+      if [ $? -ne 0 ]; then
+        echo "WARNING: $label repetition $rep failed after all retry attempts for NP=$NP"
+        # Continue with next repetition
+      fi
     done
   done
   
@@ -406,8 +576,25 @@ done
 echo ""
 echo "All timing runs completed at $(date)."
 echo "Completed $NUM_REPETITIONS repetitions for each test case."
-echo "Per-scenario stdout: results/timing_run_np*_*_rep*.out"
+echo "Maximum retry attempts per test: $MAX_RETRY_ATTEMPTS"
+echo ""
+echo "Output files:"
+echo "  Per-scenario stdout: results/timing_run_np*_*_rep*.out"
+echo "  Retry attempts: results/timing_run_np*_*_rep*_attempt*.out"
+echo "  CSV results: results/timing_np*.csv"
+echo ""
+
+# Check for any retry attempts that occurred
+echo "Checking for retry attempts..."
+retry_files=$(find results/ -name "*_attempt*.out" 2>/dev/null | wc -l)
+if [ "$retry_files" -gt 0 ]; then
+  echo "Found $retry_files retry attempt output files:"
+  find results/ -name "*_attempt*.out" 2>/dev/null | sort
+else
+  echo "No retry attempts were needed - all tests succeeded on first try."
+fi
 
 # Final cleanup (also handled by EXIT trap)
+echo ""
 echo "Performing final cleanup..."
 cleanup_timing_processes
