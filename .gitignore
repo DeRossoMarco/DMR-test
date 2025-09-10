@@ -9,19 +9,19 @@ timing
 slurm-*.out
 
 # Checkpoint directory
-checkpoints
+checkpoints/
 
 # VS Code workspace settings
-.vscode
+.vscode/
 
 # Results directory
-results
+results/
 
 # Plans directory
-plans
+plans/
+
+# Data
+data/
 
 # Nodefiles
 nodefile.*
-
-# Data
-data
