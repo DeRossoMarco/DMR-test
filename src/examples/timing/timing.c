@@ -74,7 +74,7 @@ void distributed_computation_work(int rank, int size)
     }
     
     for (int i = work_start; i < work_end; i++) {
-        sleep(1); // Simulate work
+        sleep(2); // Simulate work
     }
 }
 
@@ -198,7 +198,7 @@ int main(int argc, char *argv[])
         if (dmr_get_reconfig_count() == 1) {
                 stop_timer(1, DMR_WORLD_COMM);
             }
-        if (dmr_get_reconfig_count() == 2) {
+        if (dmr_get_reconfig_count() == 2 || iter == (shrink_iter + 1)) {
                 stop_timer(2, DMR_WORLD_COMM);
             }
 
