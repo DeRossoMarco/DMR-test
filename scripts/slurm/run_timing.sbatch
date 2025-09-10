@@ -47,14 +47,6 @@ if [ -n "$SLURM_JOB_NODELIST" ]; then
   echo "Created nodefile with $SLURM_NNODES nodes, $SLOTS_PER_NODE slots each:"
   cat "$NODEFILE"
   echo ""
-  
-  # Verify total slots
-  TOTAL_SLOTS=$((SLURM_NNODES * SLOTS_PER_NODE))
-  echo "Total available slots: $TOTAL_SLOTS"
-  if [ "$TOTAL_SLOTS" -lt 128 ]; then
-    echo "Warning: Only $TOTAL_SLOTS slots available, but test requires up to 128"
-  fi
-  echo ""
 else
   echo "Warning: SLURM_JOB_NODELIST not available, creating simple nodefile"
   echo "localhost slots=$SLURM_NTASKS" > "$NODEFILE"
