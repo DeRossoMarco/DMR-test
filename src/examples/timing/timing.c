@@ -200,6 +200,8 @@ int main(int argc, char *argv[])
             }
         if (dmr_get_reconfig_count() == 2 || iter == (shrink_iter + 1)) {
                 stop_timer(2, DMR_WORLD_COMM);
+                MPI_Comm_rank(DMR_WORLD_COMM, &rank);
+                MPI_Comm_size(DMR_WORLD_COMM, &size);
             }
 
         distributed_computation_work(rank, size);
